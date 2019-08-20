@@ -45,7 +45,7 @@ public class DDLGenerator extends DDLGeneratorSuper {
 
     private List<ColumnDefinition> columnDefinitions;
 	
-    public void createDDL(Class<?> claszz, String sqlPathFile, Properties props) throws IOException, ClassNotFoundException, URISyntaxException {
+    public void createDDL(Class<?> clazz, String sqlPathFile, Properties props, boolean createOnlyFlag) throws IOException, ClassNotFoundException, URISyntaxException {
         
     	BootstrapServiceRegistry bsr = new BootstrapServiceRegistryBuilder().build();
         StandardServiceRegistryBuilder ssrBuilder = new StandardServiceRegistryBuilder(bsr);
@@ -56,8 +56,7 @@ public class DDLGenerator extends DDLGeneratorSuper {
         MetadataSources metadataSources = new MetadataSources(registryBuilder.build());
 
         // Entity(VO)
-        String className = claszz.getSimpleName();
-        metadataSources.addAnnotatedClass(claszz);
+        metadataSources.addAnnotatedClass(clazz);
 
         Metadata metadata = metadataSources.buildMetadata();
     	JdbcEnvironment jdbcEnv = metadata.getDatabase().getJdbcEnvironment();
@@ -77,11 +76,18 @@ public class DDLGenerator extends DDLGeneratorSuper {
         }
         
         // Hibernate 식의 기존 DDL 생성(position 적용 안됨)
-        new SchemaExport()
+        SchemaExport schmeExpoert = new SchemaExport();
+        
+        schmeExpoert
         		.setDelimiter(";")
                 .setFormat(true)
-                .setOutputFile(scriptOutputPath)
-                .create(EnumSet.of(TargetType.STDOUT, TargetType.SCRIPT), metadata);
+                .setOutputFile(scriptOutputPath);
+        
+        if (createOnlyFlag == true) {
+        	schmeExpoert.createOnly(EnumSet.of(TargetType.STDOUT, TargetType.SCRIPT), metadata);
+        } else {
+        	schmeExpoert.create(EnumSet.of(TargetType.STDOUT, TargetType.SCRIPT), metadata);
+        }
         
         ///////////////////////////////////////////////////////////////////////
         
@@ -92,7 +98,7 @@ public class DDLGenerator extends DDLGeneratorSuper {
        
         for (String DDL : DDLs) {
             if (DDL.toLowerCase().startsWith("create table")) {
-                convertedDDLs.add(convert(DDL, jdbcEnv, className)); 
+                convertedDDLs.add(convert(DDL, jdbcEnv, clazz)); 
             } else {
                 convertedDDLs.add(DDL);
             } 
@@ -104,26 +110,24 @@ public class DDLGenerator extends DDLGeneratorSuper {
         	// log.info("-----------");
         }
         
-        // 교정
-        // convertedDDLs.clear();
         // 기존 DDL 구문 정리
         // create table 이전 구문은 기존 그대로 이용하고 변환된 create table 구문만 변환 추가
         convertedDDLs.clear();
         
         for (String DDL : DDLs) {
-        	 if (DDL.trim().toLowerCase().startsWith("drop") || DDL.trim().toLowerCase().startsWith("create sequence")) {
+        	 if (DDL.trim().toLowerCase().startsWith("drop") || 
+        		 DDL.trim().toLowerCase().startsWith("create sequence")) {
         		 convertedDDLs.add(DDL.trim());
         	 }
         }
         
         // 테이블 작성(create table) 이후 구문만 추출
-        // log.info("########## 변환한 DDL : "+convert(DDLs.toString(), jdbcEnv, className)); // 교정
         
-        convertedDDLs.add(convert(DDLs.toString(), jdbcEnv, className));
+        convertedDDLs.add(convert(DDLs.toString(), jdbcEnv, clazz));
         
     	log.info("########## 실행할 DDL ############");
     	for (String temp_sql : convertedDDLs) {
-    		log.info("convertedDDLs : "+temp_sql);	
+    		log.info("convertedDDL : "+temp_sql);	
     	}
     	
     	log.info("########## DDL 실행 시작");
@@ -153,7 +157,7 @@ public class DDLGenerator extends DDLGeneratorSuper {
     	log.info("########## DDL 파일 저장 끌");
     } //
 
-    private String convert(String ddl, JdbcEnvironment jdbcEnv, String className) throws ClassNotFoundException {
+    private String convert(String ddl, JdbcEnvironment jdbcEnv, Class<?> clazz) throws ClassNotFoundException {
     	
     	log.info("########### convert : DDL 변환 #########");
     	
@@ -173,24 +177,29 @@ public class DDLGenerator extends DDLGeneratorSuper {
         	log.error("구문 에러");
         } //
         
-        String columnBody = ddl.substring(startColumnBody + 1, endColumnBody);
+        
+        log.info("##### ddl : "+ddl);
+        String columnBody = ddl.substring(startColumnBody + 1, endColumnBody-6); // 교정
+        
+        log.info("##### columnBody1 : "+columnBody);
+        log.info("##########################");
+        
         String primaryKeyDefinition = "";
         
-        columnBody = columnBody.replaceAll(",,         ", ",").trim().replaceAll(" char\\)", "\\)"); // 교정
-        int primaryKey = columnBody.indexOf("primary key");
-        primaryKeyDefinition = columnBody.substring(primaryKey);
-        columnBody = columnBody.substring(1, primaryKey - 1).trim(); 
+        columnBody = columnBody.replaceAll(",,         ", ",,").trim().replaceAll(" char\\)", "\\)"); // 교정
+        int primaryKeyIndex = columnBody.indexOf("primary key");
+        primaryKeyDefinition = columnBody.substring(primaryKeyIndex);
+        columnBody = columnBody.substring(1, primaryKeyIndex-2).trim();
         
-        log.info("####### columnBody : " + columnBody);
+        log.info("####### columnBody2 : " + columnBody);
+        log.info("##########################");
 
-        columnDefinitions = Arrays.stream(columnBody.split(",")) // 교정
+        columnDefinitions = Arrays.stream(columnBody.split(",,")) // 교정
 				        		  .map(ColumnDefinition::new)
 				        		  .collect(toList()); // 교정
         
         columnDefinitions.add(new ColumnDefinition(primaryKeyDefinition));
 
-        String tableEntity = "com.javateam.JPAColumnPositioning.entity." + className;
-        Class<?> clazz = Class.forName(tableEntity);
         Field[] fields = clazz.getDeclaredFields();
         
         // log.info("######## 위치 변환 전 ");
@@ -215,7 +224,7 @@ public class DDLGenerator extends DDLGeneratorSuper {
                 .append(" ")
                 .append(tableName)
                 .append(" ")
-                .append("(\n\t");
+                .append("(\n\t\t\t");
         
         StringJoiner columns = new StringJoiner(", ");
         
@@ -234,9 +243,8 @@ public class DDLGenerator extends DDLGeneratorSuper {
         
         // log.info("######### 변환 반영 끝 #########");
         
-        // 마지막 부분 "," 제거
-        convertedDDL.append(columns.toString().substring(0, columns.toString().length()-2));
-        convertedDDL.append("));"); // DDL 마무리
+        convertedDDL.append(columns.toString()); // .substring(0, columns.toString().length()));
+        convertedDDL.append(");"); // DDL 마무리
         
         // log.info("######## 컬럼 포지션 설정 끝");
 

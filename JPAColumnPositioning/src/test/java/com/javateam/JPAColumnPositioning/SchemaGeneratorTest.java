@@ -35,7 +35,8 @@ public class SchemaGeneratorTest {
     	
     	 ddlGenerator.createDDL(new Store().getClass(), 
     			 				"d:/sql/ddl_table.sql", 
-    			 				ddlGenerator.getEnvProperties());
+    			 				ddlGenerator.getEnvProperties(),
+    			 				false);
     } //
     
 } //
